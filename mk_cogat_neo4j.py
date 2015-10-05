@@ -1,37 +1,29 @@
-from py2neo import Graph, Path, Node,Rel
+from cognitiveatlas.api import get_concept, get_task
+from py2neo import Graph, Path, Node, Rel, authenticate
 import os
 
+# Get concepts, tasks
+concepts = get_concept()
+concept_ids = concepts.pandas.id.tolist()
+concept_names = concepts.pandas.name.tolist()
+tasks = get_task()
+task_ids = tasks.pandas.id.tolist()
+task_names = tasks.pandas.name.tolist()
 
-basedir='/Users/poldrack/code/cogat-neo4j'
-
-# load concepts
-
-f=open(os.path.join(basedir,'Dump_concept_2015-10-01_560d3c1a886ef.csv'))
-hdr=f.readline()
-concept_lines=[i.strip().replace('"','').split(';') for i in f.readlines()]
-f.close()
-concept_id=[]
-for l in concept_lines:
-    concept_id.append(l[2].split('/')[-1])
-
-f=open(os.path.join(basedir,'Dump_task_2015-10-01_560d3c2116654.csv'))
-hdr=f.readline()
-task_lines=[i.strip().replace('"','').split(';') for i in f.readlines()]
-f.close()
-task_id=[]
-for l in task_lines:
-    task_id.append(l[2].split('/')[-1])
-
-f=open(os.path.join(basedir,'Dump_contrast_2015-10-01_560d3c2731758.csv'))
-hdr=f.readline()
-contrast_lines=[i.strip().replace('"','').split(';') for i in f.readlines()]
-f.close()
-contrast_id=[]
-for l in contrast_lines:
-    contrast_id.append(l[0].split('/')[-1])
+# get contrasts from tasks
+contrast_ids = []
+contrast_names = []
+contrast_tasks = []
+for t in tasks.json:
+    task = get_task(id=t["id"])
+    contrasts = task.json[0]["contrasts"]
+    for contrast in contrasts:
+        contrast_tasks.append(t["id"])
+        contrast_ids.append(contrast["id"])
+        contrast_names.append(contrast["contrast_text"])
 
 # set up authentication parameters
-#authenticate("localhost:7474", "arthur", "excalibur")
+authenticate("localhost:7474", "neo4j", "neo4j")
 
 # connect to authenticated graph database
 graph = Graph()
@@ -40,70 +32,74 @@ tx = graph.cypher.begin()
 conceptnodes={}
 tasknodes={}
 contrastnodes={}
-ctr=1
 
-for i in range(len(concept_id)):
-
-    #tx.append('CREATE (%s:Concept {name: "%s", id:"%s"}) RETURN %s'%(concept_id[i],
-    #    concept_lines[i][0],concept_id[i],concept_id[i]))
-    if graph.find_one('Concept',property_key='id', property_value=concept_id[i]) == None:
-        conceptnode= Node("Concept", name=concept_lines[i][0],
-                                    id=concept_id[i])
+# Create concept nodes
+for i in range(len(concept_ids)):
+    tx.append('CREATE (%s:concept {name: "%s", id:"%s"}) RETURN %s'%(concept_ids[i],
+        concept_names[i],concept_ids[i],concept_ids[i]))
+    if graph.find_one('concept',property_key='id', property_value=concept_ids[i]) == None:
+        conceptnode= Node("concept",name=concept_names[i],id=concept_ids[i])
         graph.create(conceptnode)
 
-
-for i in range(len(task_id)):
-
-    #tx.append('CREATE (%s:Task {name: "%s", id:"%s"}) RETURN %s'%(task_id[i],
-    #    task_lines[i][0],task_id[i],task_id[i]))
-    if graph.find_one('Task',property_key='id', property_value=task_id[i]) == None:
-        tasknode= Node("Task", name=task_lines[i][0],id=task_id[i])
+# Create task nodes
+for i in range(len(task_ids)):
+    tx.append('CREATE (%s:task {name: "%s", id:"%s"}) RETURN %s'%(task_ids[i],
+        task_names[i],task_ids[i],task_ids[i]))
+    if graph.find_one('task',property_key='id', property_value=task_ids[i]) == None:
+        tasknode= Node("task", name=task_names[i],id=task_ids[i])
         graph.create(tasknode)
 
+# Create contrast nodes, associate with task
+for i in range(len(contrast_tasks)):
+    tasknode=graph.find_one('task',property_key='id', property_value=contrast_tasks[i])
+    path = Path(tasknode,Rel("HASCONTRAST"),Node("contrast", name=contrast_names[i],id=contrast_ids[i]))
+    graph.create(path)
+    
+# Add relationships between concepts
+for i in range(len(concepts.json)):
+    concept = concepts.json[i]
+    if "relationships" in concept:
+        for relation in concept["relationships"]:
+            # We have assertions for concept ids that don't exist in the atlas [bug]
+            if relation["id"] in concept_ids:
+                conceptnode1=graph.find_one('concept',property_key='id',property_value=concept["id"])
+                conceptnode2=graph.find_one('concept',property_key='id',property_value=relation["id"])
+                if relation["direction"] == "parent":
+                    if relation["relationship"] == "kind of":
+                        path=Path(conceptnode2,Rel("ISAKINDOF"),conceptnode1)
+                    else:
+                        path=Path(conceptnode2,Rel("ISPARTOF"),conceptnode1)
+                elif relation["direction"] == "child":
+                    if relation["relationship"] == "kind of":
+                        path=Path(conceptnode1,Rel("ISAKINDOF"),conceptnode2)
+                    else:
+                        path=Path(conceptnode1,Rel("ISPARTOF"),conceptnode2)
+                graph.create(path)
+            else:
+                print "Contrast %s is not defined in the Cognitive Atlas, but an assertion exists." %(relation["id"])
 
+# Add relationships between tasks and contrasts (this may be redundant give above, oh well) :)
+for i in range(len(contrast_ids)):
+    contrastnode=graph.find_one('contrast',property_key='id',property_value=contrast_ids[i])
+    tasknode=graph.find_one('task',property_key='id',property_value=contrast_tasks[i])
+    path=Path(tasknode,Rel("HASCONTRAST"),contrastnode)
+    graph.create(path)
 
-for i in range(len(contrast_lines)):
-    tasknode=graph.find_one('Task',property_key='id', property_value=contrast_lines[i][2])
-    if not tasknode==None:
-        path = Path(tasknode,
-                    Rel("HASCONTRAST"),
-                    Node("Contrast", name=contrast_lines[i][3],id=contrast_id[i]))
-        graph.create(path)
-    else:
-        print 'problem with',contrast_lines[i]
-
-
-
-f=open(os.path.join(basedir,'Dump_assertion_2015-10-01_560d3c2dafcea.csv'))
-hdr=f.readline()
-assertion_lines=[i.strip().replace('"','').split(';') for i in f.readlines()]
-f.close()
-for i in range(len(assertion_lines)):
-    if not assertion_lines[i][5]=="concept-task":
-        continue
-
-    conceptnode=graph.find_one('Concept',property_key='id',
-                            property_value=assertion_lines[i][2])
-    contrastnode=graph.find_one('Contrast',property_key='id',
-                                property_value=assertion_lines[i][10])
-    goodnodes=True
-    if  contrastnode==None:
-        print i,'problem with contrast node',assertion_lines[i][10]
-        print assertion_lines[i]
-        print
-        goodnodes=False
-
-    elif conceptnode==None:
-        print i,'problem with concept node',assertion_lines[i][2]
-        print assertion_lines[i]
-        print
-        goodnodes=False
-
-    if goodnodes:
-        #print 'creating %s->%s'%(assertion_lines[i][2],assertion_lines[i][10])
-        path=Path(conceptnode,Rel("MEASUREDBY"),contrastnode)
-        graph.create(path)
-
-#friends = Path(alice, "KNOWS", bob, "KNOWS", carol)
-
-#graph.create(friends)
+# Add relationships between contrasts and concepts
+# This section will output a lot of text as a separate query is needed to
+# get concepts for each contrast
+for i in range(len(contrast_ids)):
+    # Sometimes the query returns a json object that cannot be decoded
+    # It is not clear if this is a connectivity issue or API empty result [bug]
+    try:
+        contrast_concepts = get_concept(contrast_id=contrast_ids[i]).json
+        for cc in contrast_concepts:
+            contrastnode=graph.find_one('contrast',property_key='id',property_value=contrast_ids[i])
+            conceptnode=graph.find_one('concept',property_key='id',property_value=cc["id"])
+            if cc["id"] in concept_ids:
+                path=Path(conceptnode,Rel("MEASUREDBY"),contrastnode)
+                graph.create(path)
+            else:
+                print "Contrast %s is not defined in the Cognitive Atlas, but an assertion exists." %(cc["id"])
+    except:
+         print "Problem retrieving contrast %s" %(contrast_ids[i])
