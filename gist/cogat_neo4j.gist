@@ -5,7 +5,6 @@
 :tags: cognitive:concepts:psychology:neuroscience
 
 '''
-== The Cognitive Atlas
 
 The Cognitive Atlas is a collaborative knowledge building project that aims to develop a knowledge base (or ontology) that characterizes the state of current thought in cognitive science. The project is led by Russell Poldrack, Professor of Psychology at Stanford University. Development of the project was supported by grant RO1MH082795 from the National Institute of Mental Health.
 
@@ -13,7 +12,6 @@ The Cognitive Atlas is a collaborative knowledge building project that aims to d
 
 [source, cypher]
 ----
-begin
 create (_0:`concept` {`id`:"trm_4a3fd79d096be", `name`:"abductive reasoning"})
 create (_1:`concept` {`id`:"trm_4fe9fb5f6a552", `name`:"absolute threshold"})
 create (_2:`concept` {`id`:"trm_4a3fd79d096e3", `name`:"abstract analogy"})
@@ -13645,8 +13643,6 @@ create _1442-[:`HASCONTRAST`]->_2888
 create _1442-[:`HASCONTRAST`]->_2887
 create _1443-[:`HASCONTRAST`]->_2889
 create _1443-[:`HASCONTRAST`]->_2889
-;
-commit
 ----
 //graph
 
