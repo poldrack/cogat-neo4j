@@ -23,7 +23,8 @@ for t in tasks.json:
         contrast_names.append(contrast["contrast_text"])
 
 # set up authentication parameters
-authenticate("localhost:7474", "neo4j", "neo4j")
+pw=open('neo4j_pw').readline().strip()
+authenticate("localhost:7474", "neo4j", pw)
 
 # connect to authenticated graph database
 graph = Graph()
@@ -54,7 +55,14 @@ for i in range(len(contrast_tasks)):
     tasknode=graph.find_one('task',property_key='id', property_value=contrast_tasks[i])
     path = Path(tasknode,Rel("HASCONTRAST"),Node("contrast", name=contrast_names[i],id=contrast_ids[i]))
     graph.create(path)
-    
+
+# from http://stackoverflow.com/questions/26747441/py2neo-how-to-check-if-a-relationship-exists
+def create_or_fail(graph_db, start_node, end_node, relationship):
+    if len(list(graph_db.match(start_node=start_node, end_node=end_node, rel_type=relationship))) > 0:
+        print("Relationship already exists")
+        return None
+    return graph_db.create((start_node, relationship, end_node))
+
 # Add relationships between concepts
 for i in range(len(concepts.json)):
     concept = concepts.json[i]
@@ -66,17 +74,18 @@ for i in range(len(concepts.json)):
                 conceptnode2=graph.find_one('concept',property_key='id',property_value=relation["id"])
                 if relation["direction"] == "parent":
                     if relation["relationship"] == "kind of":
-                        path=Path(conceptnode2,Rel("ISAKINDOF"),conceptnode1)
+                        path=create_or_fail(graph,conceptnode1,conceptnode2,"ISAKINDOF")
                     else:
-                        path=Path(conceptnode2,Rel("ISPARTOF"),conceptnode1)
+                        path=create_or_fail(graph,conceptnode1,conceptnode2,"ISPARTOF")
                 elif relation["direction"] == "child":
                     if relation["relationship"] == "kind of":
-                        path=Path(conceptnode1,Rel("ISAKINDOF"),conceptnode2)
+                        path=create_or_fail(graph,conceptnode2,conceptnode1,"ISAKINDOF")
                     else:
-                        path=Path(conceptnode1,Rel("ISPARTOF"),conceptnode2)
-                graph.create(path)
+                        path=create_or_fail(graph,conceptnode2,conceptnode1,"ISPARTOF")
+                print(conceptnode1,conceptnode2,relation["direction"] )
+                #graph.create(path)
             else:
-                print "Contrast %s is not defined in the Cognitive Atlas, but an assertion exists." %(relation["id"])
+                print("Concept %s is not defined in the Cognitive Atlas, but an assertion exists." %(relation["id"]))
 
 # Add relationships between tasks and contrasts (this may be redundant give above, oh well) :)
 for i in range(len(contrast_ids)):
@@ -100,6 +109,6 @@ for i in range(len(contrast_ids)):
                 path=Path(conceptnode,Rel("MEASUREDBY"),contrastnode)
                 graph.create(path)
             else:
-                print "Contrast %s is not defined in the Cognitive Atlas, but an assertion exists." %(cc["id"])
+                print("Contrast %s is not defined in the Cognitive Atlas, but an assertion exists." %(cc["id"]))
     except:
-         print "Problem retrieving contrast %s" %(contrast_ids[i])
+         print("Problem retrieving contrast %s" %(contrast_ids[i]))
